@@ -347,6 +347,7 @@ const chatV2 = async (req, res) => {
             run_id,
             in_progress: openai.in_progress,
           });
+          console.log("we are in step1")
           return;
         }
 
@@ -366,6 +367,8 @@ const chatV2 = async (req, res) => {
 
         // todo: retry logic
         response = await runAssistant({ openai, thread_id, run_id });
+        console.log("we are in step2")
+
         return;
       }
 
@@ -402,6 +405,8 @@ const chatV2 = async (req, res) => {
         thread_id,
         body,
       });
+      console.log("we are in step3")
+
 
       response = streamRunManager;
       response.text = streamRunManager.intermediateText;

@@ -4,6 +4,9 @@ import PanelNavigation from '~/components/Prompts/Groups/PanelNavigation';
 import { useMediaQuery, usePromptGroupsNav } from '~/hooks';
 import List from '~/components/Prompts/Groups/List';
 import { cn } from '~/utils';
+import { useRecoilValue } from 'recoil';
+import store from '~/store';
+import FollowUpQuestions from './FollowUpQuestions';
 
 export default function GroupSidePanel({
   children,
@@ -25,6 +28,7 @@ export default function GroupSidePanel({
   const location = useLocation();
   const isSmallerScreen = useMediaQuery('(max-width: 1024px)');
   const isChatRoute = useMemo(() => location.pathname.startsWith('/c/'), [location.pathname]);
+  const activeChatIndex = useRecoilValue(store.activeChatIndexAtom); // Get the current active chat index
 
   return (
     <div
@@ -50,6 +54,8 @@ export default function GroupSidePanel({
         isChatRoute={isChatRoute}
         hasPreviousPage={hasPreviousPage}
       />
+      {/* Conditionally render FollowUpQuestions only if isChatRoute is true */}
+      {isChatRoute && <FollowUpQuestions index={activeChatIndex} />}
     </div>
   );
 }

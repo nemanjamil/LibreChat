@@ -106,6 +106,7 @@ async function getResponse({ openai, run_id, thread_id }) {
   throw new Error(`Unexpected run status ${run.status}.\nFull run info:\n\n${runInfo}`);
 }
 
+
 /**
  * Filters the steps to keep only the most recent instance of each unique step.
  * @param {RunStep[]} steps - The array of RunSteps to filter.
@@ -348,6 +349,8 @@ async function runAssistant({
   accumulatedMessages = [],
   in_progress: inProgress,
 }) {
+  console.log("runAssistant function has been called.");
+
   let steps = accumulatedSteps;
   let messages = accumulatedMessages;
   const in_progress = inProgress ?? createInProgressHandler(openai, thread_id, messages);
@@ -411,6 +414,8 @@ async function runAssistant({
     // const { messages: sortedMessages, text } = await processMessages(openai, messages);
     // return { run, steps, messages: sortedMessages, text };
     const sortedMessages = messages.sort((a, b) => a.created_at - b.created_at);
+
+    
     return {
       run,
       steps,

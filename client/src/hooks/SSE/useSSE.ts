@@ -41,6 +41,7 @@ export default function useSSE(
   const [completed, setCompleted] = useState(new Set());
   const setAbortScroll = useSetRecoilState(store.abortScrollFamily(runIndex));
   const setShowStopButton = useSetRecoilState(store.showStopButtonByIndex(runIndex));
+  const setFollowUpQuestions = useSetRecoilState(store.followUpQuestionsByIndex(runIndex));
 
   const {
     setMessages,
@@ -117,7 +118,12 @@ export default function useSSE(
         (startupConfig?.checkBalance ?? false) && balanceQuery.refetch();
         console.log('final', data);
         return;
-      } else if (data.created != null) {
+      }
+      else if (data.followUp) { // Identify follow-up questions
+        setFollowUpQuestions(data.text.split('\n')); // Store follow-up questions in Recoil state
+        return;
+        
+      }else if (data.created != null) {
         const runId = v4();
         setActiveRunId(runId);
         userMessage = {

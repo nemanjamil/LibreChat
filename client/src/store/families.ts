@@ -24,6 +24,10 @@ const submissionKeysAtom = atom<(string | number)[]>({
   key: 'submissionKeys',
   default: [],
 });
+const followUpQuestionsByIndex = atomFamily<string[], number>({
+  key: 'followUpQuestionsByIndex',
+  default: [],
+});
 
 const latestMessageFamily = atomFamily<TMessage | null, string | number | null>({
   key: 'latestMessageByIndex',
@@ -396,4 +400,5 @@ export default {
   useClearLatestMessages,
   showPromptsPopoverFamily,
   updateConversationSelector,
+  followUpQuestionsByIndex
 };

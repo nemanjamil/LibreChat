@@ -72,6 +72,7 @@ class StreamRunManager {
     this.visionPromise = fields.visionPromise;
     /** @type {number} */
     this.streamRate = fields.streamRate ?? Constants.DEFAULT_STREAM_RATE;
+    this.isFollowUpGenerated = false; // Flag to track follow-up question generation
 
     /**
      * @type {Object.<AssistantStreamEvents, (event: AssistantStreamEvent) => Promise<void>>}
@@ -110,28 +111,47 @@ class StreamRunManager {
    * @param {StreamContentData} data
    * @returns {Promise<void>}
    */
-  async addContentData(data) {
-    const { type, index, edited } = data;
+ async addContentData(data) {
+    const { type, index, edited, followUpQuestions } = data;
+    console.log("ContentTypes:", ContentTypes); // Check that FOLLOW_UP_QUESTIONS is defined
+
+    // Check if the content is follow-up questions
+    if (followUpQuestions && type === ContentTypes.TEXT) {
+      const contentData = {
+          type: ContentTypes.TEXT,
+          text: followUpQuestions,  // Pass follow-up questions as text
+          thread_id: this.thread_id,
+          followUp: true,
+          messageId: this.finalMessage.messageId,
+          conversationId: this.finalMessage.conversationId,
+      };
+      console.log("Sending follow-up questions data to client as text:", contentData);  // Log for debugging
+      sendMessage(this.res, contentData);
+      return;
+  }
+
     /** @type {ContentPart} */
     const contentPart = data[type];
     this.finalMessage.content[index] = { type, [type]: contentPart };
 
     if (type === ContentTypes.TEXT && !edited) {
-      this.text += contentPart.value;
-      return;
+        this.text += contentPart.value;
+        return;
     }
 
     const contentData = {
-      index,
-      type,
-      [type]: contentPart,
-      thread_id: this.thread_id,
-      messageId: this.finalMessage.messageId,
-      conversationId: this.finalMessage.conversationId,
+        index,
+        type,
+        [type]: contentPart,
+        thread_id: this.thread_id,
+        messageId: this.finalMessage.messageId,
+        conversationId: this.finalMessage.conversationId,
     };
-
+    console.log("Sending content data to client:", contentData);
     sendMessage(this.res, contentData);
-  }
+}
+
+
 
   /* <------------------ Misc. Helpers ------------------> */
   /** Returns the latest intermediate text
@@ -329,7 +349,7 @@ class StreamRunManager {
           }
         } else if (typeof delta[key] === 'string' && typeof data[key] === 'string') {
           // Concatenate strings
-          data[key] += delta[key];
+          // data[key] += delta[key];
         } else if (
           typeof delta[key] === 'object' &&
           delta[key] !== null &&
@@ -377,6 +397,66 @@ class StreamRunManager {
       index,
     });
   }
+  /**
+ * Generates follow-up questions based on the user message and assistant's response.
+ * Logs the generated follow-up questions to the console.
+ * @param {string} userMessage - The original user's message.
+ * @param {string} assistantResponse - The assistant's response text.
+ */
+  async generateAndLogFollowUpQuestions(userMessage, assistantResponse) {
+    try {
+      const followUpPrompt = `Given the user's question: "${userMessage}" and the assistant's response: "${assistantResponse}", provide exactly 3 follow-up questions that suggest subareas or deeper aspects related to the user's original question. Focus on suggesting specific topics or aspects within the main area mentioned by the user.
+
+      List the questions in the following format only:
+      
+      FQ1: Add focus on [subarea or specific aspect]
+      FQ2: Add focus on [subarea or specific aspect]
+      FQ3: Add focus on [subarea or specific aspect]
+      
+      Do not provide any other information or additional text.`;
+      
+        console.log("Requesting follow-up questions...");
+
+        const followUpRequest = [
+            {
+                role: "system",
+                content: "Generate three follow-up questions based on the user's query and assistant's response.",
+            },
+            {
+                role: "user",
+                content: followUpPrompt,
+            },
+        ];
+
+        const followUpQuestions = await this.openai.chat.completions.create({
+            messages: followUpRequest,
+            model: "gpt-4o-mini", // Specify model if required
+        });
+
+        // Remove the FQ prefixes
+        let questions = followUpQuestions.choices[0].message.content;
+        questions = questions.replace(/FQ[1-3]: /g, '');
+
+        console.log("Generated Follow-Up Questions:", questions);
+
+        // Send the follow-up questions to the client as text content
+        await this.addContentData({
+            type: ContentTypes.TEXT,
+            followUpQuestions: questions,
+            index: null,
+            edited: false
+        });
+    } catch (error) {
+        console.error("Error generating follow-up questions:", error);
+    }
+}
+
+
+
+
+
+
+
 
   /**
    * Handle Completed Tool Call
@@ -665,10 +745,13 @@ class StreamRunManager {
    * The Message event object.
    */
   async handleMessageEvent(event) {
-    if (event.event === AssistantStreamEvents.ThreadMessageCompleted) {
+    // Check if the message event is completed and only call messageCompleted once
+    if (event.event === AssistantStreamEvents.ThreadMessageCompleted && !this.isFollowUpGenerated) {
       await this.messageCompleted(event);
+      this.isFollowUpGenerated = true; // Set flag after generating follow-ups
     }
   }
+
 
   /**
    * Handle Message Completed Events
@@ -690,6 +773,16 @@ class StreamRunManager {
       index,
     });
     this.messages.push(message);
+    const userMessage = this.req.body.text;
+    const assistantResponse = result.text;
+
+    // Only generate follow-up questions if they haven't been generated yet
+    if (!this.isFollowUpGenerated) {
+      await this.generateAndLogFollowUpQuestions(userMessage, assistantResponse);
+    }
+
+    // Reset flag after follow-ups are generated
+    this.isFollowUpGenerated = false;
   }
 }
 

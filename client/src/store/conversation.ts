@@ -6,6 +6,10 @@ const conversation = atom<TConversation | null>({
   key: 'conversation',
   default: null,
 });
+const activeChatIndexAtom = atom<number>({
+  key: 'activeChatIndex', // unique ID (with respect to other atoms/selectors)
+  default: 0, // default value
+});
 
 // current messages of the conversation, must be an array
 // sample structure
@@ -44,4 +48,5 @@ export default {
   latestMessage,
   messageAttachmentsMap,
   messagesSiblingIdxFamily,
+  activeChatIndexAtom
 };

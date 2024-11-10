@@ -1,7 +1,32 @@
 const mongoose = require('mongoose');
 const assistantSchema = require('./schema/assistant');
+const assistantHistorySchema = require('./schema/assistantHistorySchema');
 
 const Assistant = mongoose.model('assistant', assistantSchema);
+
+
+/**
+ * Logs changes to assistant instructions in the assistantHistory collection.
+ * @param {string} assistant_id - The ID of the assistant.
+ * @param {string} userId - The ID of the user making the change.
+ * @param {string} instructions - The new or updated instructions.
+ * @param {string} assistantName - The name of the assistant.
+ * @returns {Promise} Resolves when the log entry is created.
+ */
+const logAssistantHistory = async (assistant_id, userId, instructions, assistantName) => {
+  try {
+    await assistantHistorySchema.create({
+      assistant_id,
+      user: userId,
+      instructions,
+      assistantName
+    });
+  } catch (error) {
+    console.error('Error logging assistant history:', error);
+    throw error;
+  }
+};
+
 
 /**
  * Update an assistant with new data without overwriting existing properties,
@@ -62,4 +87,5 @@ module.exports = {
   deleteAssistant,
   getAssistants,
   getAssistant,
+  logAssistantHistory,
 };

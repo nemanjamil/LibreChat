@@ -14,7 +14,7 @@ const assistantHistorySchema = mongoose.Schema(
       required: true,
     },
     instructions: {
-      type: String, // or an appropriate type based on the data structure of instructions
+      type: String,
       required: true,
     },
     assistantName: {
@@ -26,6 +26,9 @@ const assistantHistorySchema = mongoose.Schema(
     timestamps: true, // Automatically adds createdAt and updatedAt timestamps
   }
 );
+
+// Create TTL index on createdAt with a 6-month expiration
+assistantHistorySchema.index({ createdAt: 1 }, { expireAfterSeconds: 15552000 });
 
 const AssistantHistory = mongoose.model('assistantHistory', assistantHistorySchema);
 module.exports = AssistantHistory;

@@ -63,23 +63,17 @@ const localStrategy = () => ({
  *
  * */
 const vectorStrategy = () => ({
-  /** @type {typeof saveFileFromURL | null} */
-  saveURL: null,
-  /** @type {typeof getLocalFileURL | null} */
-  getFileURL: null,
-  /** @type {typeof saveLocalBuffer | null} */
-  saveBuffer: null,
-  /** @type {typeof processLocalAvatar | null} */
-  processAvatar: null,
-  /** @type {typeof uploadLocalImage | null} */
-  handleImageUpload: null,
-  /** @type {typeof prepareImagesLocal | null} */
-  prepareImagePayload: null,
-  /** @type {typeof getLocalFileStream | null} */
-  getDownloadStream: null,
-  handleFileUpload: uploadVectors,
-  deleteFile: deleteVectors,
+  saveURL: null,                 // Not supported for VectorDB
+  getFileURL: null,              // Not supported for VectorDB
+  saveBuffer: null,              // Not supported for VectorDB
+  processAvatar: null,           // Not supported for VectorDB
+  handleImageUpload: null,       // Not supported for VectorDB
+  prepareImagePayload: null,     // Not supported for VectorDB
+  getDownloadStream: null,       // Not supported for VectorDB
+  handleFileUpload: uploadVectors, // Handles uploading vectors
+  deleteFile: deleteVectors,     // Handles deleting vectors
 });
+
 
 /**
  * OpenAI Strategy Functions

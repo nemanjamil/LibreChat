@@ -338,9 +338,7 @@ const uploadImageBuffer = async ({ req, context, metadata = {}, resize = true })
  */
 const processFileUpload = async ({ req, res, file, metadata }) => {
   const isAssistantUpload = isAssistantsEndpoint(metadata.endpoint);
-  const assistantSource =
-    metadata.endpoint === EModelEndpoint.azureAssistants ? FileSources.azure : FileSources.openai;
-  const source = isAssistantUpload ? assistantSource : FileSources.vectordb;
+  const source = FileSources.vectordb; // Always use vectordb for assistant uploads
   const { handleFileUpload } = getStrategyFunctions(source);
   const { file_id, temp_file_id } = metadata;
 
@@ -365,11 +363,9 @@ const processFileUpload = async ({ req, res, file, metadata }) => {
     openai,
   });
 
+  // Logic for knowledge uploads or other assistant-specific processing
   if (isAssistantUpload && !metadata.message_file && !metadata.tool_resource) {
-    await openai.beta.assistants.files.create(metadata.assistant_id, {
-      file_id: id,
-    });
-  } else if (isAssistantUpload && !metadata.message_file) {
+    // Example: Link the file to the assistant knowledge base
     await addResourceFileId({
       req,
       openai,
@@ -379,24 +375,13 @@ const processFileUpload = async ({ req, res, file, metadata }) => {
     });
   }
 
-  let filepath = isAssistantUpload ? `${openai.baseURL}/files/${id}` : _filepath;
-  if (isAssistantUpload && file.mimetype.startsWith('image')) {
-    const result = await processImageFile({
-      req,
-      file,
-      metadata: { file_id: v4() },
-      returnFile: true,
-    });
-    filepath = result.filepath;
-  }
-
   const result = await createFile(
     {
       user: req.user.id,
       file_id: id ?? file_id,
       temp_file_id,
       bytes,
-      filepath,
+      filepath: _filepath, // Use the vectordb filepath
       filename: filename ?? file.originalname,
       context: isAssistantUpload ? FileContext.assistants : FileContext.message_attachment,
       model: isAssistantUpload ? req.body.model : undefined,
@@ -410,6 +395,7 @@ const processFileUpload = async ({ req, res, file, metadata }) => {
   );
   res.status(200).json({ message: 'File uploaded and processed successfully', ...result });
 };
+
 
 /**
  * Applies the current strategy for file uploads.

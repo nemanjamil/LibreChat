@@ -22,20 +22,32 @@ const deleteVectors = async (req, file) => {
     return;
   }
   try {
-    const jwtToken = req.headers.authorization.split(' ')[1];
-    return await axios.delete(`${process.env.RAG_API_URL}/documents`, {
+    const jwtToken = req.headers.authorization?.split(' ')[1];
+    if (!jwtToken) {
+      throw new Error('Authorization token is missing.');
+    }
+
+    const data = [file.file_id];
+
+    // Include assistant-specific metadata if available
+    if (file.assistant_id) {
+      data.push({ assistant_id: file.assistant_id });
+    }
+
+    await axios.delete(`${process.env.RAG_API_URL}/documents`, {
       headers: {
         Authorization: `Bearer ${jwtToken}`,
         'Content-Type': 'application/json',
         accept: 'application/json',
       },
-      data: [file.file_id],
+      data,
     });
   } catch (error) {
     logger.error('Error deleting vectors', error);
     throw new Error(error.message || 'An error occurred during file deletion.');
   }
 };
+
 
 /**
  * Uploads a file to the configured Vector database
@@ -52,7 +64,7 @@ const deleteVectors = async (req, file) => {
  *            - filepath: The path where the file is saved.
  *            - bytes: The size of the file in bytes.
  */
-async function uploadVectors({ req, file, file_id }) {
+async function uploadVectors({ req, file, file_id, assistant_id = null, tool_resource = null }) {
   if (!process.env.RAG_API_URL) {
     throw new Error('RAG_API_URL not defined');
   }
@@ -63,7 +75,15 @@ async function uploadVectors({ req, file, file_id }) {
     formData.append('file_id', file_id);
     formData.append('file', fs.createReadStream(file.path));
 
-    const formHeaders = formData.getHeaders(); // Automatically sets the correct Content-Type
+    // Add assistant-specific metadata if present
+    if (assistant_id) {
+      formData.append('assistant_id', assistant_id);
+    }
+    if (tool_resource) {
+      formData.append('tool_resource', tool_resource);
+    }
+
+    const formHeaders = formData.getHeaders();
 
     const response = await axios.post(`${process.env.RAG_API_URL}/embed`, formData, {
       headers: {
@@ -95,6 +115,7 @@ async function uploadVectors({ req, file, file_id }) {
     throw new Error(error.message || 'An error occurred during file upload.');
   }
 }
+
 
 module.exports = {
   deleteVectors,

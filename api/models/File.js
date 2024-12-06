@@ -91,6 +91,18 @@ const deleteFile = async (file_id) => {
 const deleteFileByFilter = async (filter) => {
   return await File.findOneAndDelete(filter).lean();
 };
+/**
+ * Retrieves all files associated with a specific assistant_id.
+ * @param {string} assistant_id - The unique identifier of the assistant.
+ * @returns {Promise<Array<MongoFile>>} A promise that resolves to an array of file documents.
+ */
+const getFilesByAssistantId = async (assistant_id) => {
+  if (!assistant_id) {
+    throw new Error('Missing assistant_id');
+  }
+
+  return await File.find({ assistant_id }).sort({ updatedAt: -1 }).lean();
+};
 
 /**
  * Deletes multiple files identified by an array of file_ids.
@@ -110,6 +122,7 @@ module.exports = {
   findFileById,
   getFiles,
   createFile,
+  getFilesByAssistantId,
   updateFile,
   updateFileUsage,
   deleteFile,

@@ -30,9 +30,9 @@ const getLogStores = require('~/cache/getLogStores');
 const { getModelMaxTokens } = require('~/utils');
 const { getOpenAIClient } = require('./helpers');
 const { logger } = require('~/config');
-
+const axios = require('axios');
 const ten_minutes = 1000 * 60 * 10;
-
+const createContextHandlers = require('~/app/clients/prompts/createContextHandlers');
 /**
  * @route POST /
  * @desc Chat with an assistant
@@ -59,6 +59,7 @@ const chatV2 = async (req, res) => {
     conversationId: convoId,
     parentMessageId: _parentId = Constants.NO_PARENT,
   } = req.body;
+  logger.debug('Destructured assistant_id:', assistant_id);
 
   /** @type {OpenAIClient} */
   let openai;
@@ -105,6 +106,14 @@ const chatV2 = async (req, res) => {
   });
 
   const handleError = createErrorHandler({ req, res, getContext });
+  const jwtToken = req.headers.authorization.split(' ')[1];
+  const { processAllFiles, createContext } = createContextHandlers(req, text);
+
+  
+  
+  
+  
+  
 
   try {
     res.on('close', async () => {
@@ -117,6 +126,7 @@ const chatV2 = async (req, res) => {
       completedRun = true;
       throw new Error('Missing thread_id for existing conversation');
     }
+    logger.info('assistant_id before initializeThread:', assistant_id);
 
     if (!assistant_id) {
       completedRun = true;
@@ -187,9 +197,10 @@ const chatV2 = async (req, res) => {
 
     /** @type {CreateRunBody | undefined} */
     const body = {
-      assistant_id,
+      assistant_id: assistant_id || req.body.assistant_id, // Fallback to ensure assistant_id
       model,
     };
+    logger.info('Body after creation:', body);
 
     if (promptPrefix) {
       body.additional_instructions = promptPrefix;
@@ -203,136 +214,143 @@ const chatV2 = async (req, res) => {
       body.instructions = instructions;
     }
 
-    const getRequestFileIds = async () => {
-      let thread_file_ids = [];
-      if (convoId) {
-        const convo = await getConvo(req.user.id, convoId);
-        if (convo && convo.file_ids) {
-          thread_file_ids = convo.file_ids;
-        }
-      }
-
-      if (files.length || thread_file_ids.length) {
-        attachedFileIds = new Set([...file_ids, ...thread_file_ids]);
-
-        let attachmentIndex = 0;
-        for (const file of files) {
-          file_ids.push(file.file_id);
-          if (file.type.startsWith('image')) {
-            userMessage.content.push({
-              type: ContentTypes.IMAGE_FILE,
-              [ContentTypes.IMAGE_FILE]: { file_id: file.file_id },
-            });
-          }
-
-          if (!userMessage.attachments) {
-            userMessage.attachments = [];
-          }
-
-          userMessage.attachments.push({
-            file_id: file.file_id,
-            tools: [{ type: ToolCallTypes.CODE_INTERPRETER }],
-          });
-
-          if (file.type.startsWith('image')) {
-            continue;
-          }
-
-          const mimeType = file.type;
-          const isSupportedByRetrieval = retrievalMimeTypes.some((regex) => regex.test(mimeType));
-          if (isSupportedByRetrieval) {
-            userMessage.attachments[attachmentIndex].tools.push({
-              type: ToolCallTypes.FILE_SEARCH,
-            });
-          }
-
-          attachmentIndex++;
-        }
-      }
-    };
+    
 
     /** @type {Promise<Run>|undefined} */
     let userMessagePromise;
 
     const initializeThread = async () => {
-      await getRequestFileIds();
+      logger.info('Initializing thread...');
+      logger.debug('qweassistant_id', assistant_id)
+      logger.info('qweassistant_id', assistant_id)
 
-      // TODO: may allow multiple messages to be created beforehand in a future update
-      const initThreadBody = {
-        messages: [userMessage],
-        metadata: {
-          user: req.user.id,
-          conversationId,
-        },
-      };
+      try {
+        if (!assistant_id) {
+          const errorMsg = 'Missing assistant_id';
+          logger.error(errorMsg);
+          throw new Error(errorMsg);
+        }
+    
+        logger.info('Processing files for assistant:', assistant_id);
+        fileContext = await processAllFiles(assistant_id);
+    
+        logger.info('Files processed successfully.');
+    
+        // Use fileContext.content if it exists
+        const enrichedText = fileContext && fileContext.content
+          ? `Context:\n${fileContext.content}\n\nUser Query:\n${text}`
+          : text;
+    
+        logger.debug(`Enriched text prepared: ${enrichedText}`);
+  
+          // Initialize thread body
+          const initThreadBody = {
+              messages: [
+                  {
+                      role: 'user',
+                      content: [
+                          {
+                              type: ContentTypes.TEXT,
+                              text: enrichedText,
+                          },
+                      ],
+                      metadata: {
+                          messageId: userMessageId,
+                      },
+                  },
+              ],
+              metadata: {
+                  user: req.user.id,
+                  conversationId,
+              },
+          };
+  
+          logger.info('Initializing thread with OpenAI API...');
+          const result = await initThread({ openai, body: initThreadBody, thread_id });
+          thread_id = result.thread_id;
+          logger.info(`Thread initialized successfully: thread_id=${thread_id}`);
+  
+          // Track progress
+          logger.info('Creating text progress tracking...');
+          createOnTextProgress({
+              openai,
+              conversationId,
+              userMessageId,
+              messageId: responseMessageId,
+              thread_id,
+          });
+  
+          // Save user message
+           requestMessage = {
+              user: req.user.id,
+              text: text,
+              messageId: userMessageId,
+              parentMessageId,
+              conversationId,
+              isCreatedByUser: true,
+              assistant_id,
+              thread_id,
+              model: assistant_id,
+              endpoint,
+          };
+          logger.info(`User message created: ${JSON.stringify(requestMessage)}`);
+          logger.debug("Assitant id reqmesssage" , assistant_id)
+          logger.info("Assitant id reqmesssage" , requestMessage.assistant_id)
 
-      const result = await initThread({ openai, body: initThreadBody, thread_id });
-      thread_id = result.thread_id;
-
-      createOnTextProgress({
-        openai,
-        conversationId,
-        userMessageId,
-        messageId: responseMessageId,
-        thread_id,
-      });
-
-      requestMessage = {
-        user: req.user.id,
-        text,
-        messageId: userMessageId,
-        parentMessageId,
-        // TODO: make sure client sends correct format for `files`, use zod
-        files,
-        file_ids,
-        conversationId,
-        isCreatedByUser: true,
-        assistant_id,
-        thread_id,
-        model: assistant_id,
-        endpoint,
-      };
-
-      previousMessages.push(requestMessage);
-
-      /* asynchronous */
-      userMessagePromise = saveUserMessage(req, { ...requestMessage, model });
-
-      conversation = {
-        conversationId,
-        endpoint,
-        promptPrefix: promptPrefix,
-        instructions: instructions,
-        assistant_id,
-        // model,
-      };
-
-      if (file_ids.length) {
-        conversation.file_ids = file_ids;
+          previousMessages.push(requestMessage);
+  
+          userMessagePromise = saveUserMessage(req, { ...requestMessage, model });
+          logger.info('User message saved successfully.');
+  
+          // Update conversation metadata
+          const conversation = {
+              conversationId,
+              endpoint,
+              promptPrefix,
+              instructions,
+              assistant_id,
+          };
+          logger.info('Conversation metadata updated.');
+      } catch (error) {
+          logger.error('Error initializing thread:', error);
+          throw error;
       }
-    };
+  };
+  
 
-    const promises = [initializeThread(), checkBalanceBeforeRun()];
-    await Promise.all(promises);
-
-    const sendInitialResponse = () => {
-      sendMessage(res, {
-        sync: true,
-        conversationId,
-        // messages: previousMessages,
-        requestMessage,
-        responseMessage: {
-          user: req.user.id,
-          messageId: openai.responseMessage.messageId,
-          parentMessageId: userMessageId,
-          conversationId,
-          assistant_id,
-          thread_id,
-          model: assistant_id,
-        },
+  
+  
+  // Concurrent promises
+  logger.info('Starting thread initialization and balance check...');
+  const promises = [initializeThread(), checkBalanceBeforeRun()];
+  await Promise.all(promises)
+      .then(() => {
+          logger.info('Thread initialized and balance check completed successfully.');
+      })
+      .catch((error) => {
+          logger.error('Error during thread initialization or balance check:', error);
+          throw error;
       });
-    };
-
+  
+  // Send initial response
+  const sendInitialResponse = () => {
+      logger.info('Sending initial response to the client...');
+      sendMessage(res, {
+          sync: true,
+          conversationId,
+          requestMessage,
+          responseMessage: {
+              user: req.user.id,
+              messageId: openai.responseMessage.messageId,
+              parentMessageId: userMessageId,
+              conversationId,
+              assistant_id,
+              thread_id,
+              model: assistant_id,
+          },
+      });
+  };
+  
     /** @type {RunResponse | typeof StreamRunManager | undefined} */
     let response;
 
@@ -405,7 +423,7 @@ const chatV2 = async (req, res) => {
 
       response = streamRunManager;
       response.text = streamRunManager.intermediateText;
-
+      
       const messageCache = getLogStores(CacheKeys.MESSAGES);
       messageCache.set(
         responseMessageId,

@@ -25,7 +25,6 @@ const validateConvoAccess = async (req, res, next) => {
   const cache = getLogStores(namespace);
 
   const conversationId = req.body.conversationId;
-
   if (!conversationId || conversationId === Constants.NEW_CONVO) {
     return next();
   }

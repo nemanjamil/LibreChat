@@ -22,7 +22,7 @@ const {
 const { uploadOpenAIFile, deleteOpenAIFile, getOpenAIFileStream } = require('./OpenAI');
 const { uploadVectors, deleteVectors } = require('./VectorDB');
 const { getCodeOutputDownloadStream } = require('./Code');
-
+const { logger } = require('~/config');
 /**
  * Firebase Storage Strategy Functions
  *
@@ -125,6 +125,8 @@ const codeOutputStrategy = () => ({
 
 // Strategy Selector
 const getStrategyFunctions = (fileSource) => {
+  logger.info(`Strategy selected: ${fileSource}`);
+
   if (fileSource === FileSources.firebase) {
     return firebaseStrategy();
   } else if (fileSource === FileSources.local) {

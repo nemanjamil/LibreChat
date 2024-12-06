@@ -87,17 +87,11 @@ async function getResponse({ openai, run_id, thread_id }) {
     return newMessages;
   } else if (run.status === RunStatus.REQUIRES_ACTION) {
     const actions = [];
-    run.required_action?.submit_tool_outputs.tool_calls.forEach((item) => {
-      const functionCall = item.function;
-      const args = JSON.parse(functionCall.arguments);
-      actions.push({
-        tool: functionCall.name,
-        toolInput: args,
-        toolCallId: item.id,
-        run_id,
-        thread_id,
-      });
-    });
+    // Skip processing tool_calls completely
+if (run.required_action?.submit_tool_outputs?.tool_calls?.length) {
+    logger.info('Skipping tool_calls processing');
+}
+
 
     return actions;
   }
@@ -168,165 +162,31 @@ function hasToolCallChanged(previousCall, currentCall) {
 function createInProgressHandler(openai, thread_id, messages) {
   openai.index = 0;
   openai.mappedOrder = new Map();
-  openai.seenToolCalls = new Map();
-  openai.processedFileIds = new Set();
   openai.completeToolCallSteps = new Set();
-  openai.seenCompletedMessages = new Set();
 
-  /**
-   * The in_progress function for handling message creation steps.
-   *
-   * @type {InProgressFunction}
-   */
   async function in_progress({ step }) {
-    if (step.type === StepTypes.TOOL_CALLS) {
-      const { tool_calls } = step.step_details;
-
-      for (const _toolCall of tool_calls) {
-        /** @type {StepToolCall} */
-        const toolCall = _toolCall;
-        const previousCall = openai.seenToolCalls.get(toolCall.id);
-
-        // If the tool call isn't new and hasn't changed
-        if (previousCall && !hasToolCallChanged(previousCall, toolCall)) {
-          continue;
-        }
-
-        let toolCallIndex = openai.mappedOrder.get(toolCall.id);
-        if (toolCallIndex === undefined) {
-          // New tool call
-          toolCallIndex = openai.index;
-          openai.mappedOrder.set(toolCall.id, openai.index);
-          openai.index++;
-        }
-
-        if (step.status === StepStatus.IN_PROGRESS) {
-          toolCall.progress =
-            previousCall && previousCall.progress
-              ? Math.min(previousCall.progress + 0.2, 0.95)
-              : 0.01;
-        } else {
-          toolCall.progress = 1;
-          openai.completeToolCallSteps.add(step.id);
-        }
-
-        if (
-          toolCall.type === ToolCallTypes.CODE_INTERPRETER &&
-          step.status === StepStatus.COMPLETED
-        ) {
-          const { outputs } = toolCall[toolCall.type];
-
-          for (const output of outputs) {
-            if (output.type !== 'image') {
-              continue;
-            }
-
-            if (openai.processedFileIds.has(output.image?.file_id)) {
-              continue;
-            }
-
-            const { file_id } = output.image;
-            const file = await retrieveAndProcessFile({
-              openai,
-              client: openai,
-              file_id,
-              basename: `${file_id}.png`,
-            });
-
-            const prelimImage = file;
-
-            // check if every key has a value before adding to content
-            const prelimImageKeys = Object.keys(prelimImage);
-            const validImageFile = prelimImageKeys.every((key) => prelimImage[key]);
-
-            if (!validImageFile) {
-              continue;
-            }
-
-            const image_file = {
-              [ContentTypes.IMAGE_FILE]: prelimImage,
-              type: ContentTypes.IMAGE_FILE,
-              index: openai.index,
-            };
-            openai.addContentData(image_file);
-            openai.processedFileIds.add(file_id);
-            openai.index++;
-          }
-        } else if (
-          toolCall.type === ToolCallTypes.FUNCTION &&
-          step.status === StepStatus.COMPLETED &&
-          imageGenTools.has(toolCall[toolCall.type].name)
-        ) {
-          /* If a change is detected, skip image generation tools as already processed */
-          openai.seenToolCalls.set(toolCall.id, toolCall);
-          continue;
-        }
-
-        openai.addContentData({
-          [ContentTypes.TOOL_CALL]: toolCall,
-          index: toolCallIndex,
-          type: ContentTypes.TOOL_CALL,
-        });
-
-        // Update the stored tool call
-        openai.seenToolCalls.set(toolCall.id, toolCall);
-      }
-    } else if (step.type === StepTypes.MESSAGE_CREATION && step.status === StepStatus.COMPLETED) {
+    if (step.type === StepTypes.MESSAGE_CREATION && step.status === StepStatus.COMPLETED) {
       const { message_id } = step.step_details.message_creation;
-      if (openai.seenCompletedMessages.has(message_id)) {
-        return;
-      }
-
-      openai.seenCompletedMessages.add(message_id);
 
       const message = await openai.beta.threads.messages.retrieve(thread_id, message_id);
       if (!message?.content?.length) {
         return;
       }
-      messages.push(message);
 
-      let messageIndex = openai.mappedOrder.get(step.id);
-      if (messageIndex === undefined) {
-        // New message
-        messageIndex = openai.index;
-        openai.mappedOrder.set(step.id, openai.index);
-        openai.index++;
-      }
+      messages.push(message);
 
       const result = await processMessages({ openai, client: openai, messages: [message] });
       openai.addContentData({
         [ContentTypes.TEXT]: { value: result.text },
         type: ContentTypes.TEXT,
-        index: messageIndex,
+        index: openai.index++,
       });
-
-      // Create the Factory Function to stream the message
-      const { onProgress: progressCallback } = createOnProgress({
-        // todo: add option to save partialText to db
-        // onProgress: () => {},
-      });
-
-      // This creates a function that attaches all of the parameters
-      // specified here to each SSE message generated by the TextStream
-      const onProgress = progressCallback({
-        res: openai.res,
-        index: messageIndex,
-        messageId: openai.responseMessage.messageId,
-        conversationId: openai.responseMessage.conversationId,
-        type: ContentTypes.TEXT,
-        thread_id,
-      });
-
-      // Create a small buffer before streaming begins
-      await sleep(500);
-
-      const stream = new TextStream(result.text, { delay: 9 });
-      await stream.processTextStream(onProgress);
     }
   }
 
   return in_progress;
 }
+
 
 /**
  * Initializes a RunManager with handlers, then invokes waitForRun to monitor and manage an OpenAI run.

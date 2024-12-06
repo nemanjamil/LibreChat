@@ -19,34 +19,43 @@ const { logger } = require('~/config');
  */
 const deleteVectors = async (req, file) => {
   if (!file.embedded || !process.env.RAG_API_URL) {
+    logger.warn('File is not embedded or RAG_API_URL is missing. Skipping deletion.');
     return;
   }
+
   try {
     const jwtToken = req.headers.authorization?.split(' ')[1];
     if (!jwtToken) {
       throw new Error('Authorization token is missing.');
     }
 
-    const data = [file.file_id];
+    logger.info(`Attempting to delete vectors for file_id: ${file.file_id}`);
 
-    // Include assistant-specific metadata if available
-    if (file.assistant_id) {
-      data.push({ assistant_id: file.assistant_id });
-    }
+    // Payload for the delete request
+    const payload = {
+      file_id: file.file_id,
+    };
 
-    await axios.delete(`${process.env.RAG_API_URL}/documents`, {
-      headers: {
-        Authorization: `Bearer ${jwtToken}`,
-        'Content-Type': 'application/json',
-        accept: 'application/json',
-      },
-      data,
-    });
+    // Make the delete request to the RAG API
+    await axios.post(
+      `${process.env.RAG_API_URL}/deleteFile`,
+      payload,
+      {
+        headers: {
+          Authorization: `Bearer ${jwtToken}`,
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+      }
+    );
+
+    logger.info(`Successfully deleted vectors for file_id: ${file.file_id}`);
   } catch (error) {
-    logger.error('Error deleting vectors', error);
+    logger.error(`Error deleting vectors for file_id: ${file.file_id}`, error);
     throw new Error(error.message || 'An error occurred during file deletion.');
   }
 };
+
+
 
 
 /**
@@ -64,57 +73,62 @@ const deleteVectors = async (req, file) => {
  *            - filepath: The path where the file is saved.
  *            - bytes: The size of the file in bytes.
  */
-async function uploadVectors({ req, file, file_id, assistant_id = null, tool_resource = null }) {
+async function uploadVectors({ req, file, file_id, assistant_id = null, conversation_id = null, tool_resource = null }) {
+  logger.info(`Assistant ID received in uploadVectors: ${assistant_id}`);
+  logger.info(`Conversation ID received in uploadVectors: ${conversation_id}`);
+
   if (!process.env.RAG_API_URL) {
+    logger.error('RAG_API_URL is not defined in the environment variables.');
     throw new Error('RAG_API_URL not defined');
   }
 
   try {
-    const jwtToken = req.headers.authorization.split(' ')[1];
+    const jwtToken = req.headers.authorization?.split(' ')[1];
+    if (!jwtToken) {
+      logger.error('JWT token is missing in the Authorization header.');
+      throw new Error('JWT token is missing');
+    }
+
     const formData = new FormData();
     formData.append('file_id', file_id);
     formData.append('file', fs.createReadStream(file.path));
 
-    // Add assistant-specific metadata if present
-    if (assistant_id) {
-      formData.append('assistant_id', assistant_id);
-    }
-    if (tool_resource) {
-      formData.append('tool_resource', tool_resource);
-    }
+    if (assistant_id) formData.append('assistant_id', assistant_id);
+    if (conversation_id) formData.append('conversation_id', conversation_id);
+    if (tool_resource) formData.append('tool_resource', tool_resource);
 
-    const formHeaders = formData.getHeaders();
-
-    const response = await axios.post(`${process.env.RAG_API_URL}/embed`, formData, {
+    logger.info(`Sending POST request to RAG API with FormData containing file_id: ${file_id}`);
+    const response = await axios.post(`${process.env.RAG_API_URL}/upload`, formData, {
       headers: {
         Authorization: `Bearer ${jwtToken}`,
         accept: 'application/json',
-        ...formHeaders,
+        ...formData.getHeaders(),
       },
     });
 
     const responseData = response.data;
-    logger.debug('Response from embedding file', responseData);
+    logger.debug(`Response from RAG API: ${JSON.stringify(responseData)}`);
 
-    if (responseData.known_type === false) {
-      throw new Error(`File embedding failed. The filetype ${file.mimetype} is not supported`);
+    if (!responseData.document_ids || responseData.document_ids.length === 0) {
+      logger.error('Embedding failed. No document IDs returned.');
+      throw new Error('Embedding failed. No document IDs returned.');
     }
 
-    if (!responseData.status) {
-      throw new Error('File embedding failed.');
-    }
-
+    logger.info(`File embedding successful for file_id: ${file_id}`);
     return {
       bytes: file.size,
       filename: file.originalname,
-      filepath: FileSources.vectordb,
-      embedded: Boolean(responseData.known_type),
+      filepath: 'vectordb',
+      embedded: true,
     };
   } catch (error) {
-    logger.error('Error embedding file', error);
+    logger.error(`Error embedding file for file_id: ${file_id}`, error);
     throw new Error(error.message || 'An error occurred during file upload.');
   }
 }
+
+
+
 
 
 module.exports = {

@@ -73,7 +73,7 @@ function enqueueDeleteOperation({ req, file, deleteFile, promises, resolvedFileI
       deleteFile(req, file)
         .then(() => resolvedFileIds.push(file.file_id))
         .catch((err) => {
-          logger.error('Error deleting file', err);
+          logger.error('Error deleting file2', err);
           return Promise.reject(err);
         }),
     );
@@ -337,64 +337,117 @@ const uploadImageBuffer = async ({ req, context, metadata = {}, resize = true })
  * @returns {Promise<void>}
  */
 const processFileUpload = async ({ req, res, file, metadata }) => {
+  logger.info("Starting file upload process...");
+  logger.info(`Assistant ID received in uploadVectors: ${metadata.assistant_id}`);
+  logger.info(`Metadata: ${JSON.stringify(metadata)}`);
+
+
   const isAssistantUpload = isAssistantsEndpoint(metadata.endpoint);
+  logger.info(`isAssistantUpload: ${isAssistantUpload}`);
+
   const source = FileSources.vectordb; // Always use vectordb for assistant uploads
+  logger.info(`Using source: ${source}`);
+
   const { handleFileUpload } = getStrategyFunctions(source);
+  logger.info("Strategy functions loaded for source");
+
   const { file_id, temp_file_id } = metadata;
+  logger.info(`Metadata received - file_id: ${file_id}, temp_file_id: ${temp_file_id}`);
 
   /** @type {OpenAI | undefined} */
   let openai;
   if (checkOpenAIStorage(source)) {
+    logger.info("OpenAI storage detected, initializing OpenAI client...");
     ({ openai } = await getOpenAIClient({ req }));
   }
 
-  const {
-    id,
-    bytes,
-    filename,
-    filepath: _filepath,
-    embedded,
-    height,
-    width,
-  } = await handleFileUpload({
-    req,
-    file,
-    file_id,
-    openai,
-  });
+  try {
+    // Validate assistant_id for assistant uploads
+    if (isAssistantUpload && !metadata.assistant_id) {
+      logger.info(`Metadata received: ${JSON.stringify(metadata)}`);
+      logger.info(`Assistant ID in metadata: ${metadata.assistant_id}`);
 
-  // Logic for knowledge uploads or other assistant-specific processing
-  if (isAssistantUpload && !metadata.message_file && !metadata.tool_resource) {
-    // Example: Link the file to the assistant knowledge base
-    await addResourceFileId({
-      req,
-      openai,
-      file_id: id,
-      assistant_id: metadata.assistant_id,
-      tool_resource: metadata.tool_resource,
-    });
-  }
+    }
 
-  const result = await createFile(
-    {
-      user: req.user.id,
-      file_id: id ?? file_id,
-      temp_file_id,
+    // Log metadata before upload
+    logger.info(`Uploading file with metadata: ${JSON.stringify(metadata)}`);
+
+    // Upload the file to vectordb
+    logger.info("Uploading file to vectordb...");
+    logger.info(`Calling handleFileUpload with assistant_id: ${metadata.assistant_id}`);
+    logger.info(`Passing assistant_id to handleFileUpload: ${metadata.assistant_id}`);
+
+    const {
+      id,
       bytes,
-      filepath: _filepath, // Use the vectordb filepath
-      filename: filename ?? file.originalname,
-      context: isAssistantUpload ? FileContext.assistants : FileContext.message_attachment,
-      model: isAssistantUpload ? req.body.model : undefined,
-      type: file.mimetype,
+      filename,
+      filepath: _filepath,
       embedded,
-      source,
       height,
       width,
-    },
-    true,
-  );
-  res.status(200).json({ message: 'File uploaded and processed successfully', ...result });
+    } = await handleFileUpload({
+      req,
+      file,
+      file_id,
+      openai,
+      assistant_id: metadata.assistant_id,
+      conversation_id: metadata.conversation_id,
+    });
+    logger.info(`File uploaded successfully - id: ${id}, filepath: ${_filepath}`);
+
+    // Handle assistant-specific logic
+    if (isAssistantUpload) {
+      logger.info("Processing assistant-specific logic...");
+      // If the file is not a message attachment or tool resource, link to the knowledge base
+      if (!metadata.message_file && !metadata.tool_resource) {
+        logger.info("Linking file to assistant knowledge base...");
+        await addResourceFileId({
+          req,
+          openai,
+          file_id: id,
+          assistant_id: metadata.assistant_id,
+          conversation_id: metadata.conversation_id,
+          tool_resource: metadata.tool_resource,
+        });
+        logger.info("File linked to assistant knowledge base successfully");
+      }
+    }
+
+    // Create file metadata in the database
+    logger.info("Creating file metadata in the database...");
+    const result = await createFile(
+      {
+        user: req.user.id,
+        file_id: id ?? file_id,
+        temp_file_id,
+        bytes,
+        filepath: _filepath, // Use the vectordb filepath
+        filename: filename ?? file.originalname,
+        context: isAssistantUpload ? FileContext.message_attachment : FileContext.message_attachment,
+        model: isAssistantUpload ? req.body.model : undefined,
+        type: file.mimetype,
+        embedded,
+        source,
+        height,
+        width,
+        conversationId: metadata.conversation_id, // Only for assistants
+        assistant_id: metadata.assistant_id
+      },
+      true,
+    );
+    logger.info("File metadata created successfully");
+
+    // Return success response
+    logger.info("File upload and processing completed successfully");
+    res.status(200).json({ message: "File uploaded and processed successfully", ...result });
+  } catch (error) {
+    logger.error("Error during file upload and processing", error);
+    res.status(500).json({ message: "File upload and processing failed", error: error.message });
+  }
 };
+
+
+
 
 
 /**

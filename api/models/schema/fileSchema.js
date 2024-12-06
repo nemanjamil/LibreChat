@@ -89,6 +89,10 @@ const fileSchema = mongoose.Schema(
     model: {
       type: String,
     },
+    assistant_id: {
+      type: String,
+      index: true,   // Create an index for efficient querying
+    },
     width: Number,
     height: Number,
     expiresAt: {

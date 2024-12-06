@@ -632,12 +632,22 @@ export const useUploadFileMutation = (
 > => {
   const queryClient = useQueryClient();
   const { onSuccess, ...options } = _options || {};
+
   return useMutation([MutationKeys.fileUpload], {
     mutationFn: (body: FormData) => {
+      // Log metadata and entries for debugging
+      console.log('FormData entries before mutation:');
+        for (const [key, value] of body.entries()) {
+          console.log(`${key}: ${value}`);
+        }
+        console.log(`Assistant ID being added to FormData: ${body.get('assistant_id')}`);
+
+
       const width = body.get('width');
       const height = body.get('height');
       const version = body.get('version') as number | string;
-      if (height && width && (!version || version != 2)) {
+
+      if (height && width && (!version || version !== 2)) {
         return dataService.uploadImage(body);
       }
 
@@ -667,72 +677,53 @@ export const useUploadFileMutation = (
             return agent;
           }
 
-          const update = {};
           const prevResources = agent.tool_resources ?? {};
-          const prevResource: t.ExecuteCodeResource | t.AgentFileSearchResource = agent
-            .tool_resources?.[tool_resource] ?? {
-            file_ids: [],
-          };
-          if (!prevResource.file_ids) {
-            prevResource.file_ids = [];
-          }
+          const prevResource = prevResources?.[tool_resource] ?? { file_ids: [] };
           prevResource.file_ids.push(data.file_id);
-          update['tool_resources'] = {
-            ...prevResources,
-            [tool_resource]: prevResource,
-          };
+
           return {
             ...agent,
-            ...update,
+            tool_resources: {
+              ...prevResources,
+              [tool_resource]: prevResource,
+            },
           };
         });
       }
 
-      if (!assistant_id) {
-        onSuccess?.(data, formData, context);
-        return;
+      if (assistant_id) {
+        queryClient.setQueryData<t.AssistantListResponse>(
+          [QueryKeys.assistants, endpoint, defaultOrderQuery],
+          (prev) => {
+            if (!prev) return prev;
+
+            return {
+              ...prev,
+              data: prev.data.map((assistant) => {
+                if (assistant.id !== assistant_id) return assistant;
+
+                const update: Partial<t.Assistant> = {};
+                if (!tool_resource) {
+                  update.file_ids = [...(assistant.file_ids ?? []), data.file_id];
+                } else if (tool_resource === EToolResources.code_interpreter) {
+                  const prevResources = assistant.tool_resources ?? {};
+                  const prevResource = prevResources[tool_resource] ?? { file_ids: [] };
+                  prevResource.file_ids!.push(data.file_id);
+                  update.tool_resources = {
+                    ...prevResources,
+                    [tool_resource]: prevResource,
+                  };
+                }
+                return {
+                  ...assistant,
+                  ...update,
+                };
+              }),
+            };
+          },
+        );
       }
 
-      queryClient.setQueryData<t.AssistantListResponse>(
-        [QueryKeys.assistants, endpoint, defaultOrderQuery],
-        (prev) => {
-          if (!prev) {
-            return prev;
-          }
-
-          return {
-            ...prev,
-            data: prev.data.map((assistant) => {
-              if (assistant.id !== assistant_id) {
-                return assistant;
-              }
-
-              const update = {};
-              if (!tool_resource) {
-                update['file_ids'] = [...(assistant.file_ids ?? []), data.file_id];
-              }
-              if (tool_resource === EToolResources.code_interpreter) {
-                const prevResources = assistant.tool_resources ?? {};
-                const prevResource = assistant.tool_resources?.[tool_resource] ?? {
-                  file_ids: [],
-                };
-                if (!prevResource.file_ids) {
-                  prevResource.file_ids = [];
-                }
-                prevResource.file_ids.push(data.file_id);
-                update['tool_resources'] = {
-                  ...prevResources,
-                  [tool_resource]: prevResource,
-                };
-              }
-              return {
-                ...assistant,
-                ...update,
-              };
-            }),
-          };
-        },
-      );
       onSuccess?.(data, formData, context);
     },
   });

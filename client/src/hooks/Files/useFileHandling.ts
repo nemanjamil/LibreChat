@@ -34,7 +34,7 @@ const useFileHandling = (params?: UseFileHandling) => {
   const { showToast } = useToastContext();
   const [errors, setErrors] = useState<string[]>([]);
   const { startUploadTimer, clearUploadTimer } = useDelayedUploadToast();
-  const { files, setFiles, setFilesLoading, conversation } = useChatContext();
+  const { files, setFiles, setFilesLoading, conversation, conversationId } = useChatContext();
   const setError = (error: string) => setErrors((prevErrors) => [...prevErrors, error]);
   const { addFile, replaceFile, updateFileById, deleteFileById } = useUpdateFiles(
     params?.fileSetter ?? setFiles,
@@ -87,19 +87,21 @@ const useFileHandling = (params?: UseFileHandling) => {
     onSuccess: (data) => {
       clearUploadTimer(data.temp_file_id);
       console.log('upload success', data);
+  
       if (agent_id) {
         queryClient.refetchQueries([QueryKeys.agent, agent_id]);
         return;
       }
+  
       updateFileById(
         data.temp_file_id,
         {
           progress: 0.9,
           filepath: data.filepath,
         },
-        assistant_id ? true : false,
+        !!assistant_id,
       );
-
+  
       setTimeout(() => {
         updateFileById(
           data.temp_file_id,
@@ -115,69 +117,91 @@ const useFileHandling = (params?: UseFileHandling) => {
             source: data.source,
             embedded: data.embedded,
           },
-          assistant_id ? true : false,
+          !!assistant_id,
         );
       }, 300);
     },
     onError: (error, body) => {
-      console.log('upload error', error);
+      console.error('upload error', error);
+  
       const file_id = body.get('file_id');
       clearUploadTimer(file_id as string);
       deleteFileById(file_id as string);
-      setError(
-        (error as TError | undefined)?.response?.data?.message ??
-          'An error occurred while uploading the file.',
-      );
+  
+      
     },
   });
+  
 
   const startUpload = async (extendedFile: ExtendedFile) => {
-    const filename = extendedFile.file?.name ?? 'File';
+    const filename = extendedFile.file?.name ?? "File";
     startUploadTimer(extendedFile.file_id, filename, extendedFile.size);
-
+  
     const formData = new FormData();
-    formData.append('file', extendedFile.file as File, encodeURIComponent(filename));
-    formData.append('file_id', extendedFile.file_id);
-
+    formData.append("file", extendedFile.file as File, encodeURIComponent(filename));
+    formData.append("file_id", extendedFile.file_id);
+  
     const width = extendedFile.width ?? 0;
     const height = extendedFile.height ?? 0;
     if (width) {
-      formData.append('width', width.toString());
+      formData.append("width", width.toString());
     }
     if (height) {
-      formData.append('height', height.toString());
+      formData.append("height", height.toString());
     }
-
+  
+    // Add additional metadata if provided
     if (params?.additionalMetadata) {
-      for (const [key, value = ''] of Object.entries(params.additionalMetadata)) {
+      for (const [key, value = ""] of Object.entries(params.additionalMetadata)) {
         if (value) {
           formData.append(key, value);
         }
       }
     }
-
-    const convoAssistantId = conversation?.assistant_id ?? '';
-    const convoModel = conversation?.model ?? '';
-    if (isAssistantsEndpoint(endpoint) && !formData.get('assistant_id') && convoAssistantId) {
+  
+    // Attempt to retrieve conversationId from multiple potential properties
+    const assistantId = params?.additionalMetadata?.assistant_id || conversation?.assistant_id;
+    const conversationId = conversation?.conversationId ;
+  
+    console.log("Conversation Object Debugging:");
+    console.log(JSON.stringify(conversation, null, 2));
+  
+    if (isAssistantsEndpoint(endpoint) && !assistantId) {
+      setError("Assistant ID is required for assistant uploads.");
+      return;
+    }
+    if (assistantId) {
+      formData.append("assistant_id", assistantId);
+    }
+  
+    if (isAssistantsEndpoint(endpoint)) {
       const endpointsConfig = queryClient.getQueryData<TEndpointsConfig>([QueryKeys.endpoints]);
       const version = endpointsConfig?.[endpoint]?.version ?? defaultAssistantsVersion[endpoint];
-      formData.append('version', version);
-      formData.append('assistant_id', convoAssistantId);
-      formData.append('model', convoModel);
-      formData.append('message_file', 'true');
+      formData.append("version", version);
+      formData.append("model", conversation?.model ?? "");
+  
+      // Log and add conversation_id
+      console.log(`Determined conversationId: ${conversationId}`);
+      formData.append("conversation_id", conversationId ?? "");
+  
+      formData.append("message_file", "true");
     }
-    if (isAssistantsEndpoint(endpoint) && !formData.get('version')) {
-      const endpointsConfig = queryClient.getQueryData<TEndpointsConfig>([QueryKeys.endpoints]);
-      const version = endpointsConfig?.[endpoint]?.version ?? defaultAssistantsVersion[endpoint];
-      formData.append('version', version);
-      formData.append('model', conversation?.model ?? '');
-      formData.append('message_file', 'true');
+  
+    // Add endpoint to the formData
+    formData.append("endpoint", endpoint);
+  
+    // Debugging: Log formData
+    console.log("FormData before upload:");
+    for (const [key, value] of formData.entries()) {
+      console.log(`FormData Entry: ${key} = ${value}`);
     }
-
-    formData.append('endpoint', endpoint);
-
+  
+    // Perform the upload
     uploadFile.mutate(formData);
   };
+  
+  
+  
 
   const validateFiles = (fileList: File[]) => {
     const existingFiles = Array.from(files.values());

@@ -155,6 +155,8 @@ export default function useEventHandlers({
         ).filter((msg) => msg);
         setMessages(messagesUpdate as TMessage[]);
       }
+      console.log("conversation.conversationId1",conversation.conversationId)
+      console.log("submissionConvo.conversationId1",submission.conversation.conversationId)
 
       const isNewConvo = conversation.conversationId !== submission.conversation.conversationId;
       if (isNewConvo) {
@@ -358,77 +360,86 @@ export default function useEventHandlers({
     (data: TFinalResData, submission: EventSubmission) => {
       const { requestMessage, responseMessage, conversation, runMessages } = data;
       const { messages, conversation: submissionConvo, isRegenerate = false } = submission;
-
+  
+      console.log('finalHandler invoked with:', { data, submission });
+  
       setShowStopButton(false);
       setCompleted((prev) => new Set(prev.add(submission.initialResponse.messageId)));
-
+  
       const currentMessages = getMessages();
-      /* Early return if messages are empty; i.e., the user navigated away */
+      console.log('Current messages:', currentMessages);
+  
       if (!currentMessages || currentMessages.length === 0) {
+        console.log('No current messages; user may have navigated away.');
         return setIsSubmitting(false);
       }
-
-      /* a11y announcements */
-      announcePolite({
-        message: 'end',
-        isStatus: true,
-      });
-
-      announcePolite({
-        message: getAllContentText(responseMessage),
-      });
-
-      /* Update messages; if assistants endpoint, client doesn't receive responseMessage */
+  
+      announcePolite({ message: 'end', isStatus: true });
+      announcePolite({ message: getAllContentText(responseMessage) });
+  
       if (runMessages) {
+        console.log('Setting runMessages:', runMessages);
         setMessages([...runMessages]);
       } else if (isRegenerate && responseMessage) {
+        console.log('Appending regenerated responseMessage:', responseMessage);
         setMessages([...messages, responseMessage]);
-      } else if (requestMessage != null && responseMessage != null) {
+      } else if (requestMessage && responseMessage) {
+        console.log('Adding requestMessage and responseMessage to messages:', {
+          requestMessage,
+          responseMessage,
+        });
         setMessages([...messages, requestMessage, responseMessage]);
       }
-
-      const isNewConvo = conversation.conversationId !== submissionConvo.conversationId;
+  
+      console.log('conversation.conversationId:', conversation?.conversationId);
+      console.log('submissionConvo.conversationId:', submissionConvo?.conversationId);
+  
+      const isNewConvo = conversation?.conversationId !== submissionConvo?.conversationId;
       if (isNewConvo) {
+        console.log('New conversation detected. Updating conversation data.');
         queryClient.setQueryData<ConversationData>([QueryKeys.allConversations], (convoData) => {
-          if (!convoData) {
-            return convoData;
-          }
+          console.log('Updating allConversations query data:', convoData);
+          if (!convoData) return convoData;
           return deleteConversation(convoData, submissionConvo.conversationId as string);
         });
       }
-
-      /* Refresh title */
+  
       if (
         genTitle &&
         isNewConvo &&
         requestMessage &&
         requestMessage.parentMessageId === Constants.NO_PARENT
       ) {
+        console.log('Generating new title for conversation:', conversation?.conversationId);
         setTimeout(() => {
-          genTitle.mutate({ conversationId: conversation.conversationId as string });
+          genTitle.mutate({ conversationId: conversation?.conversationId as string });
         }, 2500);
       }
-
-      if (setConversation && isAddedRequest !== true) {
+  
+      if (setConversation && !isAddedRequest) {
         if (window.location.pathname === '/c/new') {
-          window.history.pushState({}, '', '/c/' + conversation.conversationId);
+          console.log('Updating URL for new conversation.');
+          window.history.pushState({}, '', '/c/' + conversation?.conversationId);
         }
-
+  
         setConversation((prevState) => {
+          console.log('Updating conversation state. Previous state:', prevState);
           const update = {
             ...prevState,
             ...conversation,
           };
-
-          if (prevState?.model != null && prevState.model !== submissionConvo.model) {
+  
+          if (prevState?.model && prevState.model !== submissionConvo.model) {
             update.model = prevState.model;
           }
-
+  
+          console.log('Updated conversation state:', update);
           return update;
         });
       }
-
+  
       setIsSubmitting(false);
+      console.log('Submission complete.');
     },
     [
       genTitle,
@@ -443,6 +454,7 @@ export default function useEventHandlers({
       setShowStopButton,
     ],
   );
+  
 
   const errorHandler = useCallback(
     ({ data, submission }: { data?: TResData; submission: EventSubmission }) => {

@@ -80,137 +80,157 @@ export default function useSSE(
   });
 
   useEffect(() => {
+    console.log('useSSE submission:', submission);
+
     if (submission === null || Object.keys(submission).length === 0) {
-      return;
+        console.log('Submission is null or empty, exiting effect.');
+        return;
     }
+
 
     let { userMessage } = submission;
 
+    console.log('Creating payload from submission.');
     const payloadData = createPayload(submission);
     let { payload } = payloadData;
+    console.log('Payload created:', payload);
+
     if (isAssistantsEndpoint(payload.endpoint) || isAgentsEndpoint(payload.endpoint)) {
-      payload = removeNullishValues(payload) as TPayload;
+        console.log('Endpoint requires removing nullish values.');
+        payload = removeNullishValues(payload) as TPayload;
+        console.log('Payload after removing nullish values:', payload);
     }
 
     let textIndex = null;
 
+    console.log('Initializing SSE with payloadData.server:', payloadData.server);
     const events = new SSE(payloadData.server, {
-      payload: JSON.stringify(payload),
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        payload: JSON.stringify(payload),
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
     });
 
     events.onattachment = (e: MessageEvent) => {
-      try {
-        const data = JSON.parse(e.data);
-        attachmentHandler({ data, submission: submission as EventSubmission });
-      } catch (error) {
-        console.error(error);
-      }
+        console.log('Attachment event received:', e.data);
+        try {
+            const data = JSON.parse(e.data);
+            attachmentHandler({ data, submission: submission as EventSubmission });
+        } catch (error) {
+            console.error('Error handling attachment event:', error);
+        }
     };
 
     events.onmessage = (e: MessageEvent) => {
-      const data = JSON.parse(e.data);
+        console.log('Raw SSE data:', e.data);
+        const data = JSON.parse(e.data);
+        console.log('Parsed SSE data:', data);
+        console.log('Before finalHandler - conversation:', data.conversation);
 
-      if (data.final != null) {
-        const { plugins } = data;
-        finalHandler(data, { ...submission, plugins } as EventSubmission);
-        (startupConfig?.checkBalance ?? false) && balanceQuery.refetch();
-        console.log('final', data);
-        return;
-      } else if (data.created != null) {
-        const runId = v4();
-        setActiveRunId(runId);
-        userMessage = {
-          ...userMessage,
-          ...data.message,
-          overrideParentMessageId: userMessage.overrideParentMessageId,
-        };
-
-        createdHandler(data, { ...submission, userMessage } as EventSubmission);
-      } else if (data.event != null) {
-        stepHandler(data, { ...submission, userMessage } as EventSubmission);
-      } else if (data.sync != null) {
-        const runId = v4();
-        setActiveRunId(runId);
-        /* synchronize messages to Assistants API as well as with real DB ID's */
-        syncHandler(data, { ...submission, userMessage } as EventSubmission);
-      } else if (data.type != null) {
-        const { text, index } = data;
-        if (text != null && index !== textIndex) {
-          textIndex = index;
+        if (data.final != null) {
+            console.log('Final event detected:', data);
+            const { plugins } = data;
+            finalHandler(data, { ...submission, plugins } as EventSubmission);
+            if (startupConfig?.checkBalance ?? false) {
+                balanceQuery.refetch();
+            }
+            return;
+        } else if (data.created != null) {
+            console.log('Created event detected:', data);
+            const runId = v4();
+            setActiveRunId(runId);
+            userMessage = {
+                ...userMessage,
+                ...data.message,
+                overrideParentMessageId: userMessage.overrideParentMessageId,
+            };
+            createdHandler(data, { ...submission, userMessage } as EventSubmission);
+        } else if (data.event != null) {
+            console.log('Step event detected:', data);
+            stepHandler(data, { ...submission, userMessage } as EventSubmission);
+        } else if (data.sync != null) {
+            console.log('Sync event detected:', data);
+            const runId = v4();
+            setActiveRunId(runId);
+            syncHandler(data, { ...submission, userMessage } as EventSubmission);
+        } else if (data.type != null) {
+            console.log('Type event detected:', data);
+            const { text, index } = data;
+            if (text != null && index !== textIndex) {
+                textIndex = index;
+            }
+            contentHandler({ data, submission: submission as EventSubmission });
+        } else {
+            console.log('Default message handling for data:', data);
+            const text = data.text ?? data.response;
+            const { plugin, plugins } = data;
+            const initialResponse = {
+                ...(submission.initialResponse as TMessage),
+                parentMessageId: data.parentMessageId,
+                messageId: data.messageId,
+            };
+            if (data.message != null) {
+                messageHandler(text, { ...submission, plugin, plugins, userMessage, initialResponse });
+            }
         }
-
-        contentHandler({ data, submission: submission as EventSubmission });
-      } else {
-        const text = data.text ?? data.response;
-        const { plugin, plugins } = data;
-
-        const initialResponse = {
-          ...(submission.initialResponse as TMessage),
-          parentMessageId: data.parentMessageId,
-          messageId: data.messageId,
-        };
-
-        if (data.message != null) {
-          messageHandler(text, { ...submission, plugin, plugins, userMessage, initialResponse });
-        }
-      }
     };
 
     events.onopen = () => {
-      setAbortScroll(false);
-      console.log('connection is opened');
+        console.log('SSE connection opened.');
+        setAbortScroll(false);
     };
 
     events.oncancel = async () => {
-      const streamKey = (submission as TSubmission | null)?.['initialResponse']?.messageId;
-      if (completed.has(streamKey)) {
-        setIsSubmitting(false);
-        setCompleted((prev) => {
-          prev.delete(streamKey);
-          return new Set(prev);
-        });
-        return;
-      }
-
-      setCompleted((prev) => new Set(prev.add(streamKey)));
-      const latestMessages = getMessages();
-      const conversationId = latestMessages?.[latestMessages.length - 1]?.conversationId;
-      return await abortConversation(
-        conversationId ?? userMessage.conversationId ?? submission.conversationId,
-        submission as EventSubmission,
-        latestMessages,
-      );
+        console.log('Cancel event triggered.');
+        const streamKey = (submission as TSubmission | null)?.['initialResponse']?.messageId;
+        if (completed.has(streamKey)) {
+            console.log('Submission already completed.');
+            setIsSubmitting(false);
+            setCompleted((prev) => {
+                prev.delete(streamKey);
+                return new Set(prev);
+            });
+            return;
+        }
+        console.log('Marking submission as completed.');
+        setCompleted((prev) => new Set(prev.add(streamKey)));
+        const latestMessages = getMessages();
+        const conversationId = latestMessages?.[latestMessages.length - 1]?.conversationId;
+        return await abortConversation(
+            conversationId ?? userMessage.conversationId ?? submission.conversationId,
+            submission as EventSubmission,
+            latestMessages,
+        );
     };
 
     events.onerror = function (e: MessageEvent) {
-      console.log('error in server stream.');
-      (startupConfig?.checkBalance ?? false) && balanceQuery.refetch();
-
-      let data: TResData | undefined = undefined;
-      try {
-        data = JSON.parse(e.data) as TResData;
-      } catch (error) {
-        console.error(error);
-        console.log(e);
-        setIsSubmitting(false);
-      }
-
-      errorHandler({ data, submission: { ...submission, userMessage } as EventSubmission });
+        console.log('Error event triggered in SSE.');
+        if (startupConfig?.checkBalance ?? false) {
+            balanceQuery.refetch();
+        }
+        let data: TResData | undefined = undefined;
+        try {
+            data = JSON.parse(e.data) as TResData;
+        } catch (error) {
+            console.error('Error parsing error event data:', error);
+            console.log('Event data:', e);
+            setIsSubmitting(false);
+        }
+        errorHandler({ data, submission: { ...submission, userMessage } as EventSubmission });
     };
 
+    console.log('Setting isSubmitting to true and starting SSE stream.');
     setIsSubmitting(true);
     events.stream();
 
     return () => {
-      const isCancelled = events.readyState <= 1;
-      events.close();
-      // setSource(null);
-      if (isCancelled) {
-        const e = new Event('cancel');
-        events.dispatchEvent(e);
-      }
+        console.log('Cleaning up SSE connection.');
+        const isCancelled = events.readyState <= 1;
+        events.close();
+        if (isCancelled) {
+            const e = new Event('cancel');
+            console.log('Dispatching cancel event.');
+            events.dispatchEvent(e);
+        }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [submission]);
+}, [submission]);
 }

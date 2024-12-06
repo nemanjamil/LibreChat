@@ -9,37 +9,54 @@ import { useAuthContext } from '~/hooks/AuthContext';
 import useNewConvo from '~/hooks/useNewConvo';
 import store from '~/store';
 
-// this to be set somewhere else
 export default function useChatHelpers(index = 0, paramId?: string) {
+  console.log('Initializing useChatHelpers with index:', index, 'paramId:', paramId);
+
   const clearAllSubmissions = store.useClearSubmissionState();
   const [files, setFiles] = useRecoilState(store.filesByIndex(index));
+  console.log('RecoilState - files:', files);
+
   const [filesLoading, setFilesLoading] = useState(false);
+  console.log('State - filesLoading:', filesLoading);
 
   const queryClient = useQueryClient();
+  console.log('QueryClient initialized.');
+
   const { isAuthenticated } = useAuthContext();
+  console.log('AuthContext - isAuthenticated:', isAuthenticated);
 
   const { newConversation } = useNewConvo(index);
+  console.log('useNewConvo - newConversation initialized.');
+
   const { useCreateConversationAtom } = store;
   const { conversation, setConversation } = useCreateConversationAtom(index);
+  console.log('Conversation Atom - conversation:', conversation);
+
   const { conversationId } = conversation ?? {};
+  console.log('Conversation ID:', conversationId);
 
   const queryParam = paramId === 'new' ? paramId : conversationId ?? paramId ?? '';
+  console.log('Query Parameter:', queryParam);
 
-  /* Messages: here simply to fetch, don't export and use `getMessages()` instead */
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const { data: _messages } = useGetMessagesByConvoId(conversationId ?? '', {
     enabled: isAuthenticated,
   });
+  console.log('Fetched messages with useGetMessagesByConvoId:', _messages);
 
   const resetLatestMessage = useResetRecoilState(store.latestMessageFamily(index));
   const [isSubmitting, setIsSubmitting] = useRecoilState(store.isSubmittingFamily(index));
+  console.log('RecoilState - isSubmitting:', isSubmitting);
+
   const [latestMessage, setLatestMessage] = useRecoilState(store.latestMessageFamily(index));
+  console.log('RecoilState - latestMessage:', latestMessage);
+
   const setSiblingIdx = useSetRecoilState(
     store.messagesSiblingIdxFamily(latestMessage?.parentMessageId ?? null),
   );
 
   const setMessages = useCallback(
     (messages: TMessage[]) => {
+      console.log('Setting messages in queryClient:', messages);
       queryClient.setQueryData<TMessage[]>([QueryKeys.messages, queryParam], messages);
       if (queryParam === 'new') {
         queryClient.setQueryData<TMessage[]>([QueryKeys.messages, conversationId], messages);
@@ -49,29 +66,12 @@ export default function useChatHelpers(index = 0, paramId?: string) {
   );
 
   const getMessages = useCallback(() => {
+    console.log('Getting messages from queryClient.');
     return queryClient.getQueryData<TMessage[]>([QueryKeys.messages, queryParam]);
   }, [queryParam, queryClient]);
 
-  /* Conversation */
-  // const setActiveConvos = useSetRecoilState(store.activeConversations);
-
-  // const setConversation = useCallback(
-  //   (convoUpdate: TConversation) => {
-  //     _setConversation(prev => {
-  //       const { conversationId: convoId } = prev ?? { conversationId: null };
-  //       const { conversationId: currentId } = convoUpdate;
-  //       if (currentId && convoId && convoId !== 'new' && convoId !== currentId) {
-  //         // for now, we delete the prev convoId from activeConversations
-  //         const newActiveConvos = { [currentId]: true };
-  //         setActiveConvos(newActiveConvos);
-  //       }
-  //       return convoUpdate;
-  //     });
-  //   },
-  //   [_setConversation, setActiveConvos],
-  // );
-
   const setSubmission = useSetRecoilState(store.submissionByIndex(index));
+  console.log('SetSubmission initialized.');
 
   const { ask, regenerate } = useChatFunctions({
     index,
@@ -85,20 +85,22 @@ export default function useChatHelpers(index = 0, paramId?: string) {
     setSubmission,
     setLatestMessage,
   });
+  console.log('ChatFunctions initialized - ask and regenerate.');
 
   const continueGeneration = () => {
+    console.log('Continuing generation.');
     if (!latestMessage) {
       console.error('Failed to regenerate the message: latestMessage not found.');
       return;
     }
 
     const messages = getMessages();
-
     const parentMessage = messages?.find(
       (element) => element.messageId == latestMessage.parentMessageId,
     );
 
     if (parentMessage && parentMessage.isCreatedByUser) {
+      console.log('Valid parent message found, continuing generation.');
       ask({ ...parentMessage }, { isContinued: true, isRegenerate: true, isEdited: true });
     } else {
       console.error(
@@ -107,15 +109,20 @@ export default function useChatHelpers(index = 0, paramId?: string) {
     }
   };
 
-  const stopGenerating = () => clearAllSubmissions();
+  const stopGenerating = () => {
+    console.log('Stopping generation.');
+    clearAllSubmissions();
+  };
 
   const handleStopGenerating = (e: React.MouseEvent<HTMLButtonElement>) => {
     e.preventDefault();
+    console.log('Stop generating button clicked.');
     stopGenerating();
   };
 
   const handleRegenerate = (e: React.MouseEvent<HTMLButtonElement>) => {
     e.preventDefault();
+    console.log('Regenerate button clicked.');
     const parentMessageId = latestMessage?.parentMessageId;
     if (!parentMessageId) {
       console.error('Failed to regenerate the message: parentMessageId not found.');
@@ -126,6 +133,7 @@ export default function useChatHelpers(index = 0, paramId?: string) {
 
   const handleContinue = (e: React.MouseEvent<HTMLButtonElement>) => {
     e.preventDefault();
+    console.log('Continue button clicked.');
     continueGeneration();
     setSiblingIdx(0);
   };
@@ -141,12 +149,12 @@ export default function useChatHelpers(index = 0, paramId?: string) {
     store.showAgentSettingsFamily(index),
   );
 
+  console.log('useChatHelpers setup complete.');
+
   return {
     newConversation,
     conversation,
     setConversation,
-    // getConvos,
-    // setConvos,
     isSubmitting,
     setIsSubmitting,
     getMessages,
@@ -155,6 +163,7 @@ export default function useChatHelpers(index = 0, paramId?: string) {
     latestMessage,
     setLatestMessage,
     resetLatestMessage,
+    conversationId,
     ask,
     index,
     regenerate,

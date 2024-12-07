@@ -1,0 +1,18 @@
+# DockerfileOllama
+FROM ollama/ollama:latest
+
+# Create a startup script
+COPY <<EOF /start.sh
+#!/bin/sh
+ollama serve &
+sleep 5
+ollama pull bge-m3
+ollama list
+tail -f /dev/null
+EOF
+
+# Make the script executable
+RUN chmod +x /start.sh
+
+# Use the script as the entrypoint
+ENTRYPOINT ["/start.sh"]

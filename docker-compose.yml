@@ -10,7 +10,7 @@ services:
       - mongodb
       - rag_api
     build:
-      context: /Users/baris/desktop/librechat
+      context: ${LIBRECHAT_PATH}
       dockerfile: Dockerfile
     restart: always
     user: "${UID}:${GID}"
@@ -21,6 +21,7 @@ services:
       - BRANCH=${BRANCH}
       - MONGO_URI=mongodb://mongodb:27017/LibreChat
       - MEILI_HOST=http://meilisearch:7700
+      - RAG_API_URL=${RAG_API_URL}
     volumes:
       - type: bind
         source: ./.env
@@ -28,7 +29,7 @@ services:
       - ./images:/app/client/public/images
       - ./logs:/app/api/logs
     env_file:
-      - .env  # Add this line to reference your .env file
+      - .env  
     networks:
       - bridge_network
 
@@ -48,7 +49,10 @@ services:
       - bridge_network
 
   qdrant:
-    image: qdrant/qdrant:latest
+    build:
+      context: .
+      dockerfile: DockerFileQdrant
+    #image: qdrant/qdrant:latest
     restart: always
     container_name: qdrant
     ports:
@@ -65,15 +69,21 @@ services:
       - qdrant_data:/qdrant/storage 
     networks:
       - bridge_network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:6333/cluster"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
 
   rag_api:
     container_name: rag_api
     build:
-      context: /Users/baris/desktop/rag_api
+      context: ${RAG_API_LOCAL}
       dockerfile: Dockerfile
     restart: always
     depends_on:
-      - qdrant
+      qdrant:
+        condition: service_healthy
     ports:
       - "5000:5000"
     networks:
@@ -83,7 +93,10 @@ services:
       OLLAMA_BASE_URL: http://ollama:11434
 
   ollama:
-    image: ollama/ollama:latest
+    build:
+      context: .
+      dockerfile: DockerFileOllama
+    # image: ollama/ollama:latest
     container_name: ollama
     hostname: ollama
     networks:
@@ -115,3 +128,4 @@ volumes:
 networks:
   bridge_network:
     driver: bridge
+    name: bridge_network  # Explicitly set the network name

@@ -1,9 +1,10 @@
 const { ToolCallTypes } = require('librechat-data-provider');
 const validateAuthor = require('~/server/middleware/assistants/validateAuthor');
 const { validateAndUpdateTool } = require('~/server/services/ActionService');
-const { updateAssistantDoc } = require('~/models/Assistant');
+const { updateAssistantDoc,logAssistantHistory } = require('~/models/Assistant');
 const { getOpenAIClient } = require('./helpers');
 const { logger } = require('~/config');
+const { update } = require('lodash');
 
 /**
  * Create an assistant.
@@ -48,6 +49,10 @@ const createAssistant = async (req, res) => {
     }
 
     const document = await updateAssistantDoc({ assistant_id: assistant.id }, createData);
+    if (assistantData.instructions) {
+      // Log the initial instructions in assistantHistory
+      await logAssistantHistory(assistant.id, req.user.id, assistantData.instructions);
+    }
 
     if (azureModelIdentifier) {
       assistant.model = azureModelIdentifier;
@@ -76,6 +81,11 @@ const createAssistant = async (req, res) => {
  */
 const updateAssistant = async ({ req, openai, assistant_id, updateData }) => {
   await validateAuthor({ req, openai });
+  if (updateData?.instructions) {
+    console.log("updateData",updateData)
+    // Log instruction updates in assistantHistory
+    await logAssistantHistory(assistant_id, req.user.id, updateData.instructions, updateData.name);
+  }
   const tools = [];
   let conversation_starters = null;
 

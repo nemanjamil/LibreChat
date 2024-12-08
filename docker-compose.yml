@@ -7,8 +7,10 @@ services:
     ports:
       - "${PORT}:${PORT}"
     depends_on:
-      - mongodb
-      - rag_api
+      mongodb:
+        condition: service_healthy
+      rag_api:
+        condition: service_healthy
     build:
       context: ${LIBRECHAT_PATH}
       dockerfile: Dockerfile
@@ -91,6 +93,12 @@ services:
     environment:
       QDRANT_URL: http://qdrant:6333
       OLLAMA_BASE_URL: http://ollama:11434
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://rag_api:5000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 2s
 
   ollama:
     build:
@@ -116,6 +124,12 @@ services:
     volumes:
       - ./data-node:/data/db
     command: mongod --noauth
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "'db.runCommand(\"ping\").ok'" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 2s
 
 configs:
   qdrant_config:

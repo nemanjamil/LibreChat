@@ -647,10 +647,7 @@ ${botMessage.message}
         const attachments = this.message_file_map[message.messageId];
         for (const file of attachments) {
           if (file.embedded) {
-            const preContext = this.contextHandlers?.queryAllFiles(null,file.file_id);
-            
-            this.augmentedPrompt = preContext
-            promptPrefix = this.augmentedPrompt + promptPrefix;
+            this.contextHandlers?.processFile(file);
             continue;
           }
 
@@ -665,10 +662,10 @@ ${botMessage.message}
       }
     });
 
-    // if (this.contextHandlers) {
-    //   this.augmentedPrompt = await this.contextHandlers.createContext();
-    //   promptPrefix = this.augmentedPrompt + promptPrefix;
-    // }
+    if (this.contextHandlers) {
+      this.augmentedPrompt = await this.contextHandlers.createContext();
+      promptPrefix = this.augmentedPrompt + promptPrefix;
+    }
 
     if (promptPrefix) {
       // If the prompt prefix doesn't end with the end token, add it.

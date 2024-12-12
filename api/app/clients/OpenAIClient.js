@@ -529,10 +529,7 @@ class OpenAIClient extends BaseClient {
         const attachments = this.message_file_map[message.messageId];
         for (const file of attachments) {
           if (file.embedded) {
-            const preContext = this.contextHandlers?.queryAllFiles(null, file.file_id);
-            
-            this.augmentedPrompt = preContext
-            promptPrefix = this.augmentedPrompt + promptPrefix;
+            this.contextHandlers?.processFile(file);
             continue;
           }
 
@@ -547,10 +544,10 @@ class OpenAIClient extends BaseClient {
       return formattedMessage;
     });
 
-    // if (this.contextHandlers) {
-    //   this.augmentedPrompt = await this.contextHandlers.createContext();
-    //   promptPrefix = this.augmentedPrompt + promptPrefix;
-    // }
+    if (this.contextHandlers) {
+      this.augmentedPrompt = await this.contextHandlers.createContext();
+      promptPrefix = this.augmentedPrompt + promptPrefix;
+    }
 
     if (promptPrefix && this.isO1Model !== true) {
       promptPrefix = `Instructions:\n${promptPrefix.trim()}`;

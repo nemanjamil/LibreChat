@@ -44,7 +44,7 @@ const ten_minutes = 1000 * 60 * 10;
  * @returns {void}
  */
 const chatV1 = async (req, res) => {
-  logger.debug('[/assistants/chat/] req.body1', req.body);
+  logger.debug('[/assistants/chat/] req.body', req.body);
 
   const {
     text,
